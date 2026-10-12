@@ -121,6 +121,23 @@ contract CocoonBurnTest is CocoonFixture {
         cocoon.unlockCallback(abi.encode(uint256(1), uint160(1)));
     }
 
+    /// @dev At the default 5% limit, with a pot far larger than the limit lets one burn spend, the
+    /// price after the burn is at least 95% of the price before it. The square root in the limit rounds
+    /// down; without the unit added back, a burn moved the price 5.016%.
+    function test_aBurnNeverMovesThePricePastTheLimit() public {
+        _buyExactIn(5 ether);
+        _deposit(40 ether);
+        uint256 before = _price();
+        _ready();
+
+        cocoon.burn();
+
+        uint256 after_ = _price();
+        uint256 ratioBps = after_ * after_ / before * 10_000 / before;
+        assertGe(ratioBps, 9500, "the burn moved the price past the 5% limit");
+        assertLt(ratioBps, 9600, "the burn used its room");
+    }
+
     function test_theOwnerCanTightenOrLoosenTheLimitWithinBounds() public {
         Cocoon.Params memory p = cocoon.getParams();
         p.burnImpactBps = 100;

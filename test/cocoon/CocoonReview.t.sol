@@ -411,6 +411,22 @@ contract CocoonReviewTest is CocoonFixture {
         _expectBad(p, Cocoon.AlreadyHeld.selector);
     }
 
+    /// @dev A seat offered far under the floor is not bought: a holder could sell the vault a seat for
+    /// a wei, book a cost of a wei and tilt the mode, then buy it back from the listing for about as
+    /// little. Half the floor is still taken.
+    function test_aSeatFarUnderTheFloorIsNotBought() public {
+        OrderParameters memory cheap = _params(seller, SEAT, 1.4 ether - 1);
+        _validate(cheap);
+        _expectBad(cheap, Cocoon.BadOrder.selector);
+
+        OrderParameters memory half = _params(seller, SEAT, 1.4 ether);
+        _validate(half);
+        _buy(half);
+        (uint128 cost,,,,, bool held,) = cocoon.seats(SEAT);
+        assertTrue(held);
+        assertEq(cost, 1.4 ether);
+    }
+
     /// @dev A purchase that was paid for but delivered nothing is refused whole: the seat must be in
     /// the vault when Seaport returns, whatever Seaport reported.
     function test_aPurchaseThatDeliversNoSeatIsRefused() public {

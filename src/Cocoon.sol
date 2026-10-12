@@ -326,7 +326,7 @@ contract Cocoon is IUnlockCallback {
         external
         nonReentrant
     {
-        (uint256 tokenId, uint256 price) = _checkOrder(order);
+        (uint256 tokenId, uint256 price, uint256 floor) = _checkOrder(order);
         if (seatPot < price + price * params.callerRewardBps / BPS) revert PotTooSmall();
 
         // Cocoon sends the highest price the order can ask. Seaport returns the part the order did
@@ -342,6 +342,9 @@ contract Cocoon is IUnlockCallback {
         if (!fulfilled || refund >= price || !_holds(tokenId)) revert PurchaseFailed();
 
         uint256 spent = price - refund;
+        // Not far under the floor either: a holder could otherwise sell the vault a seat for a wei, which
+        // would book a cost of a wei and tilt the mode, and buy it back from the listing for about as little.
+        if (spent < floor / 2) revert BadOrder();
         uint256 reward = spent * params.callerRewardBps / BPS;
         seatPot -= spent + reward;
         _record(tokenId, spent);
@@ -387,7 +390,11 @@ contract Cocoon is IUnlockCallback {
     /// offerer must be someone else as well: Seaport asks no signature of an offerer that fulfils its
     /// own order, so an order "from" Cocoon for a seat Cocoon already holds would go through, and the
     /// price would leave the seat pot for a seat that was already the vault's. Such a seat is adopted.
-    function _checkOrder(AdvancedOrder calldata order) private view returns (uint256 tokenId, uint256 price) {
+    function _checkOrder(AdvancedOrder calldata order)
+        private
+        view
+        returns (uint256 tokenId, uint256 price, uint256 floor)
+    {
         OrderParameters calldata p = order.parameters;
         if (p.offerer == address(this)) revert BadOrder();
         if (p.offer.length != 1 || p.consideration.length == 0) revert BadOrder();
@@ -409,7 +416,8 @@ contract Cocoon is IUnlockCallback {
             if (c.startAmount == 0 || c.endAmount == 0) revert BadOrder();
             price += c.startAmount > c.endAmount ? c.startAmount : c.endAmount;
         }
-        (uint256 floor, bool fresh) = FLOOR.latest();
+        bool fresh;
+        (floor, fresh) = FLOOR.latest();
         if (!fresh) revert FloorNotFresh();
         if (price > floor * (BPS + params.toleranceBps) / BPS) revert PriceAboveFloor();
     }
@@ -478,7 +486,9 @@ contract Cocoon is IUnlockCallback {
         if (swapBudget == 0) revert NothingToBurn();
 
         (uint160 sqrtPrice,,,) = POOL_MANAGER.getSlot0(launchKey.toId());
-        uint256 limit = uint256(sqrtPrice) * _sqrt((BPS - p.burnImpactBps) * BPS) / BPS;
+        // The square root rounds down, which would let a burn move the price a hair past the limit;
+        // one more unit keeps every burn at or under it.
+        uint256 limit = uint256(sqrtPrice) * (_sqrt((BPS - p.burnImpactBps) * BPS) + 1) / BPS;
         if (limit <= TickMath.MIN_SQRT_PRICE) limit = TickMath.MIN_SQRT_PRICE + 1;
 
         bytes memory result = POOL_MANAGER.unlock(abi.encode(swapBudget, uint160(limit)));
