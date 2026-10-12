@@ -88,7 +88,8 @@ timelock.
 |---|---|---|
 | TimelockController | `0x8bE826082c0FbAeC485048aA26ef42aC147898EC` | 48 hours, the developer proposes |
 | FloorFeed | `0x5A215aa9883cEfE5fa74085ba66288388b83700C` | attester `0x5598Aa91…2982`, evidence chain 1; owned by the deployer until `post` |
-| Cocoon | `0xc4E514E60565a2c04bd657f18bB34B503D6c299D` | the corrected vault, deployed by `redeploy`; owned by the deployer until `post` |
+| Cocoon | `0x54993066369e57a49215f6fc2D9911a8e5a57a79` | the vault as launched, deployed by `redeploy`; owned by the deployer until `post` |
+| Cocoon, retired | `0xc4E514E60565a2c04bd657f18bB34B503D6c299D` | the vault of the second attempt (#1412): carried the reopening flaw the review of the first fix found; never wired, empty, abandoned |
 | Cocoon, retired | `0x0adD7b9584cd73CeF21B39014e3ff6077BE53441` | the vault of launch #1400: never wired, empty, abandoned (see below) |
 
 From block 26161806.
@@ -133,9 +134,10 @@ parked as #1400 and nothing was deployed. The audit's text is on
 finding with its outcome.
 
 The vault is fixed in the source and deployed again. `script/mainnet/launch.mjs redeploy` deploys the
-new Cocoon beside the same FloorFeed and timelock, at the launch wallet's next contract address
-(`0xc4E514E60565a2c04bd657f18bB34B503D6c299D`, nonce 4), which `launch.json`, the launch request and the fork test already name; the step
-sends nothing if the wallet's nonce has moved. The question hash and the first attestation are FloorFeed's
+new Cocoon beside the same FloorFeed and timelock, at the launch wallet's next contract address, which
+`launch.json`, the launch request and the fork test already name; the step sends nothing if the wallet's
+nonce has moved. It ran twice: nonce 4 gave `0xc4E514E60565a2c04bd657f18bB34B503D6c299D`, which the independent review of the first fix
+then showed to carry a second flaw, and nonce 5 gives `0x54993066369e57a49215f6fc2D9911a8e5a57a79`, the vault as launched. The question hash and the first attestation are FloorFeed's
 and stay as they are. Then: `manifest`, `open` (0.5 IMD), `post`, `report`, `finish`.
 
 What that attempt taught about IMD:
@@ -152,6 +154,15 @@ What that attempt taught about IMD:
   request that the value in the manifest is to be kept.
 - The wait in `open` must outlast a sleeping laptop: the runner now waits out network errors, and finds
   Foundry where `foundryup` puts it when the shell's PATH does not have it.
+
+### Launch #1412, parked (2026-10-12)
+
+The second attempt (order `ee02d5e3-b2da-4df5-a2be-367ba534f285`, job `2726c329-944c-4bbb-9156-5bc4c8962091`,
+commit `f66596e`) was paid while the independent review of the first fix was still running, and that
+review then found that the fix had opened a second hole. IMD's audit found the same hole and one more
+(`buySeat` taking an order from Cocoon itself), and parked the launch after 70 minutes. Both are fixed
+and recorded in `docs/REVIEW.md`; the third vault is deployed from that source. Lesson kept: the launch
+is paid only after the review of a fix has come back.
 
 ## What the Sepolia rehearsal taught (2026-10-10)
 

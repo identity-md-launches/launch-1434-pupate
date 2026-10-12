@@ -450,7 +450,7 @@ export function reduce(s: SimState, a: Action): SimState {
       if (s.auction) return s;
       return withToast(
         { ...s, auction: { token: "SOME", lot: 1000, start: 1, ageH: 0 } },
-        "Auction opened: 1,000 SOME, starting at 1 ETH and halving every 2 hours.",
+        "Auction opened: 1,000 SOME, starting at 100 ETH and halving every 2 hours.",
       );
     }
 
