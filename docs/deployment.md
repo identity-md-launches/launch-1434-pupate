@@ -162,7 +162,8 @@ commit `f66596e`) was paid while the independent review of the first fix was sti
 review then found that the fix had opened a second hole. IMD's audit found the same hole and one more
 (`buySeat` taking an order from Cocoon itself), and parked the launch after 70 minutes. Both are fixed
 and recorded in `docs/REVIEW.md`; the third vault is deployed from that source. Lesson kept: the launch
-is paid only after the review of a fix has come back.
+is paid only after the review of a fix has come back. Before the third attempt the whole vault was audited
+once more by a fresh reviewer, which found one more medium issue in a change made that day (`docs/REVIEW.md`).
 
 ## What the Sepolia rehearsal taught (2026-10-10)
 

@@ -133,7 +133,7 @@ export function How() {
               <a href="https://github.com/pupate-IMD/PUPATE" target="_blank" rel="noreferrer">
                 github.com/pupate-IMD/PUPATE
               </a>
-              : the contracts, the keeper, this site, 238 tests, five independent reviews and two audits by IMD’s swarm. The deployed addresses appear in the
+              : the contracts, the keeper, this site, 245 tests, six independent reviews and two audits by IMD’s swarm. The deployed addresses appear in the
               footer, with verified source, once they exist.
             </p>
           </details>
