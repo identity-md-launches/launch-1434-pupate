@@ -7,12 +7,13 @@ import {CocoonHandler} from "../utils/CocoonHandler.sol";
 
 contract CocoonInvariantTest is CocoonFixture {
     CocoonHandler internal handler;
+    MockERC20 internal earned;
 
     function setUp() public override {
         super.setUp();
         _endLaunch();
         _setFloor(2.8 ether);
-        MockERC20 earned = new MockERC20("Some Launch", "SOME");
+        earned = new MockERC20("Some Launch", "SOME");
         handler = new CocoonHandler(
             CocoonHandler.Setup({
                 cocoon: cocoon,
@@ -52,6 +53,10 @@ contract CocoonInvariantTest is CocoonFixture {
         handler.imdCycle();
         handler.hostileHarvest(0, 5 ether);
         assertEq(handler.hostileCalls(), 1, "the lot token called back into Cocoon");
+        handler.reopeningHarvestTake(10 ether);
+        handler.deposit(10 ether);
+        handler.reopeningImdTake();
+        assertEq(handler.reopeningCalls(), 2, "takers called back into Cocoon from their payments");
         assertGt(cocoon.burnPot() + cocoon.seatPot(), 0);
         // The sold seat left Cocoon and its listing shows filled; no stray ETH exit was booked.
         assertTrue(handler.listingWasFilled(1000), "the seat left through a filled listing");
@@ -101,6 +106,15 @@ contract CocoonInvariantTest is CocoonFixture {
                 assertTrue(handler.listingWasFilled(tokenId), "a seat left without a filled listing");
             }
         }
+    }
+
+    /// @dev An auction never claims more of a token than Cocoon holds, and the IMD auction never
+    /// more ETH than its pot: a lot that was handed out cannot be booked for sale again.
+    function invariant_noAuctionClaimsMoreThanCocoonHolds() public view {
+        (uint128 lot,,) = cocoon.auctions(address(earned));
+        assertLe(lot, earned.balanceOf(address(cocoon)), "a harvest auction claims tokens Cocoon lacks");
+        (uint128 imdLot,,) = cocoon.imdAuction();
+        assertLe(imdLot, cocoon.imdBurnBalance(), "the IMD auction claims ETH its pot lacks");
     }
 
     function invariant_cocoonNeverKeepsPupate() public view {

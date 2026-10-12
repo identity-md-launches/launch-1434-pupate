@@ -36,9 +36,10 @@ import {PupateToken} from "./PupateToken.sol";
 /// a caller reward of at most 1%, the developer, an auction taker's own excess, and the taker of
 /// the IMD auction (the ETH lot). Every function that moves value is callable by anyone and
 /// bounded by parameters the owner can change only within hard-coded limits. Between calls the
-/// balance always equals the four pots added together; `skim` books ETH that was forced in. Every
-/// entry point that moves ETH or measures the balance against the pots holds one lock, so none of
-/// them runs while another has ETH in flight.
+/// balance always equals the four pots added together, and no auction claims more of a token than
+/// the vault holds; `skim` books ETH that was forced in. Every entry point that moves value or reads
+/// a balance into the books holds one lock, so none of them runs while another has value in flight;
+/// `receive` stays outside it and only takes plain ETH, which it books at once.
 contract Cocoon is IUnlockCallback {
     using StateLibrary for IPoolManager;
 
@@ -205,9 +206,10 @@ contract Cocoon is IUnlockCallback {
         _;
     }
 
-    /// @dev One lock for every entry point that moves ETH or measures the balance against the pots.
-    /// While it is held, ETH may be in flight (the price of a purchase, a taker's excess, a lot on
-    /// its way out), and no other such entry point may run until the books are whole again.
+    /// @dev One lock for every entry point that moves value or reads a balance into the books. While
+    /// it is held, value may be in flight (the price of a purchase, a taker's excess, a lot on its way
+    /// out), and no other such entry point may run until the books are whole again. That includes the
+    /// ones that only open an auction: they read a token balance that a lot in flight still counts in.
     modifier nonReentrant() {
         if (_tload(LOCK_SLOT) != 0) revert Reentrancy();
         _tstore(LOCK_SLOT, 1);
@@ -381,9 +383,13 @@ contract Cocoon is IUnlockCallback {
 
     /// @dev The order must be one seat of the collection for native ETH, in full, paid to others:
     /// every consideration item is ETH to someone other than Cocoon with a non-zero amount, and the
-    /// array is exactly the original one, so a fulfiller cannot append tips paid from the price.
+    /// array is exactly the original one, so a fulfiller cannot append tips paid from the price. The
+    /// offerer must be someone else as well: Seaport asks no signature of an offerer that fulfils its
+    /// own order, so an order "from" Cocoon for a seat Cocoon already holds would go through, and the
+    /// price would leave the seat pot for a seat that was already the vault's. Such a seat is adopted.
     function _checkOrder(AdvancedOrder calldata order) private view returns (uint256 tokenId, uint256 price) {
         OrderParameters calldata p = order.parameters;
+        if (p.offerer == address(this)) revert BadOrder();
         if (p.offer.length != 1 || p.consideration.length == 0) revert BadOrder();
         if (p.consideration.length != p.totalOriginalConsiderationItems) revert BadOrder();
         if (order.numerator != 1 || order.denominator != 1) revert BadOrder();
@@ -396,7 +402,7 @@ contract Cocoon is IUnlockCallback {
                 || item.endAmount != 1
         ) revert BadOrder();
         tokenId = item.identifierOrCriteria;
-        if (seats[tokenId].held) revert AlreadyHeld();
+        if (seats[tokenId].held || _holds(tokenId)) revert AlreadyHeld();
         for (uint256 i; i < p.consideration.length; i++) {
             ConsiderationItem calldata c = p.consideration[i];
             if (c.itemType != ItemType.NATIVE || c.recipient == address(this)) revert BadOrder();
@@ -516,7 +522,7 @@ contract Cocoon is IUnlockCallback {
 
     /// @notice Put Cocoon's whole balance of `token` up for a falling-price auction. Not PUPATE,
     /// not the collection.
-    function startAuction(address token) external {
+    function startAuction(address token) external nonReentrant {
         if (!wired) revert NotWired();
         if (
             token == address(0) || token == address(COLLECTION)
@@ -557,7 +563,7 @@ contract Cocoon is IUnlockCallback {
 
     /// @notice Offer the IMD-burn ETH for IMD: the IMD demanded falls over time, the first taker
     /// gets the ETH, and the IMD they deliver goes to the dead address.
-    function startImdAuction() external {
+    function startImdAuction() external nonReentrant {
         if (imdAuction.lot != 0) revert AuctionRunning();
         uint256 lot = imdBurnBalance;
         if (lot == 0) revert NothingToAuction();

@@ -104,7 +104,8 @@ contract MockSeaport {
     ) external payable returns (bool) {
         OrderParameters calldata p = order.parameters;
         bytes32 h = hashOf(p);
-        require(validated[h], "mock: not validated");
+        // As Seaport: an offerer that fulfils its own order needs neither a signature nor a validation.
+        require(validated[h] || msg.sender == p.offerer, "mock: not validated");
         require(!cancelled[h] && !filled[h], "mock: not fulfillable");
         require(block.timestamp >= p.startTime && block.timestamp < p.endTime, "mock: outside the window");
         require(p.offer.length == 1 && p.offer[0].itemType == ItemType.ERC721, "mock: one ERC721 only");

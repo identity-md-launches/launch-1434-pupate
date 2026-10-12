@@ -21,6 +21,7 @@ import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockERC721} from "../mocks/MockERC721.sol";
 import {MockSeaport} from "../mocks/MockSeaport.sol";
 import {ReenteringToken} from "../mocks/ReenteringToken.sol";
+import {ReopeningTaker} from "../mocks/ReopeningTaker.sol";
 import {PoolRouter} from "./PoolRouter.sol";
 
 /// @dev Invariant handler. Plays every role around Cocoon: trader, keeper, seller, buyer of our
@@ -50,6 +51,9 @@ contract CocoonHandler is StdUtils {
     /// @dev Anyone can put any contract up as a harvest lot; this one calls back from its transfer.
     ReenteringToken public hostile;
     uint256 public hostileCalls;
+    /// @dev A taker that opens the auction again from inside the payment it receives.
+    ReopeningTaker public reopener;
+    uint256 public reopeningCalls;
 
     uint256[] public recorded;
     mapping(uint256 => bool) private isRecorded;
@@ -65,6 +69,7 @@ contract CocoonHandler is StdUtils {
         s = setup;
         setup.collection.setApprovalForAll(address(setup.seaport), true);
         hostile = new ReenteringToken();
+        reopener = new ReopeningTaker(setup.cocoon);
     }
 
     receive() external payable {}
@@ -245,6 +250,44 @@ contract CocoonHandler is StdUtils {
         if (address(this).balance < pay) return;
         try s.cocoon.takeAuction{value: pay}(address(hostile)) {
             if (hostile.called()) hostileCalls += 1;
+        } catch {}
+    }
+
+    /// @dev A harvest arrives and is auctioned, and its taker calls back into Cocoon from inside its
+    /// refund to open the auction again while the lot is still in the balance.
+    function reopeningHarvestTake(uint96 mintAmount) external noEthExit {
+        s.earned.mint(address(s.cocoon), bound(mintAmount, 1, 1000 ether));
+        try s.cocoon.startAuction(address(s.earned)) {} catch {}
+        uint256 price;
+        try s.cocoon.auctionPrice(address(s.earned)) returns (uint256 p) {
+            price = p;
+        } catch {
+            return;
+        }
+        uint256 pay = price + 1;
+        if (address(this).balance < pay) return;
+        (bool funded,) = address(reopener).call{value: pay}("");
+        if (!funded) return;
+        try reopener.takeHarvest(address(s.earned), pay) {
+            reopeningCalls += 1;
+        } catch {}
+    }
+
+    /// @dev The IMD auction's taker calls back into Cocoon from inside the payout of the ETH lot and
+    /// tries to open the next IMD auction. The lot leaving is a sanctioned exit, so no leak is booked.
+    function reopeningImdTake() external {
+        try s.cocoon.startImdAuction() {} catch {}
+        uint256 demand;
+        try s.cocoon.imdDemand() returns (uint256 d) {
+            demand = d;
+        } catch {
+            return;
+        }
+        s.imd.mint(address(reopener), demand);
+        vm.prank(address(reopener));
+        s.imd.approve(address(s.cocoon), demand);
+        try reopener.takeImd() {
+            reopeningCalls += 1;
         } catch {}
     }
 

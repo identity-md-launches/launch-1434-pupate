@@ -6,13 +6,18 @@ import {AdvancedOrder, CriteriaResolver} from "seaport-types/src/lib/Considerati
 import {Cocoon} from "../../src/Cocoon.sol";
 import {IERC20Minimal} from "../../src/interfaces/IERC20Minimal.sol";
 import {IERC721Minimal} from "../../src/interfaces/IERC721Minimal.sol";
+import {MockERC20} from "../mocks/MockERC20.sol";
 import {ReenteringToken} from "../mocks/ReenteringToken.sol";
+import {ReopeningTaker} from "../mocks/ReopeningTaker.sol";
 import {CocoonFixture} from "../utils/CocoonFixture.sol";
 
-/// @dev What a hostile token can reach while Cocoon is calling it. Found by the audit of launch
-/// #1400: `takeAuction` called the lot token while the taker's excess ETH was still in the balance,
-/// and `skim`, which was not under the reentrancy lock, booked that excess into the burn pot before
-/// it was refunded. The pots then claimed ETH that had left, and later burns spent the other pots.
+/// @dev What a hostile token or taker can reach while Cocoon is calling it. Found by the audit of
+/// launch #1400: `takeAuction` called the lot token while the taker's excess ETH was still in the
+/// balance, and `skim`, which was not under the reentrancy lock, booked that excess into the burn pot
+/// before it was refunded. The pots then claimed ETH that had left, and later burns spent the other
+/// pots. Found by the review of that fix: once the excess was refunded first, a taker could open the
+/// auction again from inside the refund, while the lot was still in the balance, and so book a lot the
+/// vault did not hold.
 contract CocoonReentrancyTest is CocoonFixture {
     ReenteringToken bad;
     address attacker = makeAddr("attacker");
@@ -133,6 +138,63 @@ contract CocoonReentrancyTest is CocoonFixture {
         vm.prank(attacker);
         cocoon.takeAuction(address(bad));
         assertEq(bad.refusal(), reentrancy);
+    }
+
+    // ------------------------------------------------------------------ reopening from a payment
+
+    function test_aTakerCannotReopenTheHarvestAuctionFromItsRefund() public {
+        MockERC20 earned = new MockERC20("Some Launch", "SOME");
+        earned.mint(address(cocoon), 1000 ether);
+        ReopeningTaker taker = new ReopeningTaker(cocoon);
+        vm.deal(address(taker), 10 ether);
+        cocoon.startAuction(address(earned));
+        vm.warp(block.timestamp + 20 hours);
+        uint256 price = cocoon.auctionPrice(address(earned));
+
+        // One wei of excess is enough to be called back before the lot leaves.
+        taker.takeHarvest(address(earned), price + 1);
+
+        assertFalse(taker.reopened(), "the auction was opened again from inside the refund");
+        assertEq(taker.refusal(), reentrancy);
+        assertEq(earned.balanceOf(address(taker)), 1000 ether, "the take itself went through");
+        (uint128 lot,,) = cocoon.auctions(address(earned));
+        assertEq(lot, 0, "no auction is left claiming a lot the vault does not hold");
+        assertEq(address(taker).balance, 10 ether - price, "the excess came back");
+        _assertBalanceIdentity();
+
+        // The next harvest can be auctioned as usual.
+        earned.mint(address(cocoon), 800 ether);
+        cocoon.startAuction(address(earned));
+        (lot,,) = cocoon.auctions(address(earned));
+        assertEq(lot, 800 ether);
+    }
+
+    function test_aTakerCannotReopenTheImdAuctionFromItsPayout() public {
+        ReopeningTaker taker = new ReopeningTaker(cocoon);
+        _deposit(4 ether); // 0.2 ETH to the IMD burn, beside the 0.5 ETH from the 10 ETH above
+        cocoon.startImdAuction();
+        (uint128 lot,,) = cocoon.imdAuction();
+        assertEq(lot, 0.7 ether);
+        vm.warp(block.timestamp + 2 hours);
+        uint256 demand = cocoon.imdDemand();
+        imd.mint(address(taker), demand);
+        vm.prank(address(taker));
+        imd.approve(address(cocoon), demand);
+        _deposit(4 ether); // another 0.2 ETH waits for the next IMD auction
+
+        taker.takeImd();
+
+        assertFalse(taker.reopened(), "the IMD auction was opened again from inside the payout");
+        assertEq(taker.refusal(), reentrancy);
+        assertEq(address(taker).balance, 0.7 ether, "the taker has the lot");
+        (lot,,) = cocoon.imdAuction();
+        assertEq(lot, 0);
+        assertEq(cocoon.imdBurnBalance(), 0.2 ether, "the next lot is still in its pot");
+        _assertBalanceIdentity();
+
+        cocoon.startImdAuction();
+        (lot,,) = cocoon.imdAuction();
+        assertEq(lot, 0.2 ether);
     }
 
     // ------------------------------------------------------------------ the IMD auction

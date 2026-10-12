@@ -375,4 +375,39 @@ contract CocoonReviewTest is CocoonFixture {
         assertEq(cost, type(uint128).max);
         assertEq(cocoon.heldCost(), type(uint128).max, "the total moves by exactly the seat's cost");
     }
+
+    // ------------------------------------------------------------------ from the audit of launch #1412: an order from Cocoon itself
+
+    /// @dev Seaport asks no signature of an offerer that fulfils its own order, and Cocoon is the
+    /// fulfiller in `buySeat`. An order "from" Cocoon for a seat it already holds but has not recorded
+    /// (one sent to it directly, or one that came back after a sale) would therefore go through, with
+    /// the price paid out of the seat pot to whoever the order names, for a seat that was already the
+    /// vault's. Such a seat is taken in by `adopt`, for nothing.
+    function test_cocoonCannotBeSoldASeatItAlreadyHolds() public {
+        vm.prank(seller);
+        collection.transferFrom(seller, address(cocoon), SEAT);
+        OrderParameters memory p = _params(address(cocoon), SEAT, 2.8 ether);
+        p.consideration[0].recipient = payable(keeper);
+        (uint256 potBefore,,,) = _pots();
+
+        _expectBad(p, Cocoon.BadOrder.selector);
+
+        assertEq(cocoon.seatPot(), potBefore, "nothing left the seat pot");
+        assertEq(collection.ownerOf(SEAT), address(cocoon));
+        (,,,,, bool held,) = cocoon.seats(SEAT);
+        assertFalse(held, "the seat is still unrecorded; adopt takes it in");
+        _setFloor(2.8 ether);
+        cocoon.adopt(SEAT);
+        assertEq(cocoon.seatPot(), potBefore, "adopting costs the vault nothing");
+    }
+
+    /// @dev The same seat offered by anyone else is refused as well: it is already in the vault.
+    function test_aSeatTheVaultAlreadyHoldsCannotBeBoughtFromAnyone() public {
+        vm.prank(seller);
+        collection.transferFrom(seller, address(cocoon), SEAT);
+        OrderParameters memory p = _params(seller, SEAT, 2.8 ether);
+        _validate(p);
+
+        _expectBad(p, Cocoon.AlreadyHeld.selector);
+    }
 }
