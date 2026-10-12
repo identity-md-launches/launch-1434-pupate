@@ -29,6 +29,8 @@ contract MockSeaport {
     /// can prove the buyer's reentrancy lock holds.
     address public reenterTarget;
     bytes public reenterData;
+    /// @dev When set, fulfilment takes the price and does not move the seat.
+    bool public withholdDelivery;
 
     event OrderValidated(bytes32 orderHash, address offerer);
     event OrderCancelled(bytes32 orderHash, address offerer);
@@ -37,6 +39,10 @@ contract MockSeaport {
     function setReentry(address target, bytes calldata data) external {
         reenterTarget = target;
         reenterData = data;
+    }
+
+    function setWithholdDelivery(bool withhold) external {
+        withholdDelivery = withhold;
     }
 
     function getCounter(address offerer) external view returns (uint256) {
@@ -116,7 +122,10 @@ contract MockSeaport {
             require(ok, string(why));
         }
 
-        IERC721Like(p.offer[0].token).transferFrom(p.offerer, recipient, p.offer[0].identifierOrCriteria);
+        // A broken marketplace for the tests: takes the price and delivers nothing.
+        if (!withholdDelivery) {
+            IERC721Like(p.offer[0].token).transferFrom(p.offerer, recipient, p.offer[0].identifierOrCriteria);
+        }
 
         uint256 total;
         for (uint256 i; i < p.consideration.length; i++) {

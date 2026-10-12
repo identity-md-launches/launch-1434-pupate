@@ -410,4 +410,19 @@ contract CocoonReviewTest is CocoonFixture {
 
         _expectBad(p, Cocoon.AlreadyHeld.selector);
     }
+
+    /// @dev A purchase that was paid for but delivered nothing is refused whole: the seat must be in
+    /// the vault when Seaport returns, whatever Seaport reported.
+    function test_aPurchaseThatDeliversNoSeatIsRefused() public {
+        OrderParameters memory p = _params(seller, SEAT, 2.8 ether);
+        _validate(p);
+        seaport.setWithholdDelivery(true);
+        (uint256 potBefore,,,) = _pots();
+
+        _expectBad(p, Cocoon.PurchaseFailed.selector);
+
+        assertEq(cocoon.seatPot(), potBefore);
+        assertEq(collection.ownerOf(SEAT), seller);
+        _assertBalanceIdentity();
+    }
 }

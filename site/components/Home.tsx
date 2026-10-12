@@ -118,7 +118,7 @@ export function Home() {
           </Link>
           <a className="panel move" href="https://github.com/pupate-IMD/PUPATE" target="_blank" rel="noreferrer">
             <span className="t serif">Open source, reviewed twice</span>
-            <p>237 tests, four independent reviews, two audits by IMD’s swarm, and the whole cycle rehearsed on a fork of mainnet and on Sepolia before launch.</p>
+            <p>238 tests, five independent reviews, two audits by IMD’s swarm, and the whole cycle rehearsed on a fork of mainnet and on Sepolia before launch.</p>
             <span className="label">Read the code →</span>
           </a>
         </div>
